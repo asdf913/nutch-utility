@@ -30,6 +30,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Base64.Decoder;
 import java.util.Base64.Encoder;
 import java.util.EventObject;
 import java.util.List;
@@ -86,9 +87,14 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 
 	private static final String COMPONENT = "component";
 
-	private JTextComponent jtcFile, jtcFileLength, jtcDigest, jtcDeflated, jtcDeflatedLength = null;
+	private static final String WRAP = "wrap";
 
-	private AbstractButton absFile, absFileRefresh, absCopyDeflated = null;
+	private static final String GROWX = "growx";
+
+	private JTextComponent jtcFile, jtcFileBase64, jtcFileLength, jtcDigest, jtcDeflatedOutput, jtcDeflatedLength,
+			jtcDeflatedInput, jtcfOriginal, jtcfOriginalLength = null;
+
+	private AbstractButton absFile, absFileRefresh, absCopyDeflated, absDeflate = null;
 
 	private JPanel jpFile = null;
 
@@ -111,12 +117,10 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		jTabbedPane.addTab("Defalte", createDeflatePanel(cloneLayoutManager(lm1)));
 		//
-		if (lm1 instanceof MigLayout) {
-			//
-			add(jTabbedPane);
-			//
-		} // if
-			//
+		jTabbedPane.addTab("Infalte", createInflatePanel(cloneLayoutManager(lm1)));
+		//
+		add(jTabbedPane);
+		//
 	}
 
 	private static LayoutManager getLayout(final Container instance) {
@@ -133,8 +137,6 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		add(panel, new JLabel("File"), String.format("%1$s,span 1 2", top));
 		//
-		final String wrap = "wrap";
-		//
 		final Border border = BorderFactory.createMatteBorder(1, 1, 1, 1, Color.BLACK);
 		//
 		(jpFile = new JPanel()).setBorder(border);
@@ -143,19 +145,23 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		dtFile.addDropTargetListener(this);
 		//
-		final String growx = "growx";
+		add(panel, jpFile, String.format("%1$s,span %2$s %3$s,height %4$s", GROWX, 4, 2, 100));
 		//
-		add(panel, jpFile, String.format("%1$s,span %2$s %3$s,height %4$s", growx, 4, 2, 100));
+		add(panel, absFile = new JButton("Browse"), String.format("%1$s,%2$s", top, WRAP));
 		//
-		add(panel, absFile = new JButton("Browse"), String.format("%1$s,%2$s", top, wrap));
-		//
-		add(panel, absFileRefresh = new JButton("Refresh"), String.format("%1$s,%2$s", top, wrap));
+		add(panel, absFileRefresh = new JButton("Refresh"), String.format("%1$s,%2$s", top, WRAP));
 		//
 		add(panel, new JLabel("File"));
 		//
-		add(panel, jtcFile = new JTextField(), String.format("width %1$s,%2$s,span %3$s", 200, growx, 3));
+		add(panel, jtcFile = new JTextField(), String.format("width %1$s,%2$s,span %3$s", 200, GROWX, 3));
 		//
-		add(panel, jtcFileLength = new JTextField(), String.format("%1$s,%2$s,wmin %3$s", growx, wrap, 60));
+		final int wmin = 60;
+		//
+		add(panel, jtcFileLength = new JTextField(), String.format("%1$s,%2$s,wmin %3$s", GROWX, WRAP, wmin));
+		//
+		add(panel, new JLabel("File Base64"));
+		//
+		add(panel, jtcFileBase64 = new JTextField(), String.format("%1$s,span %2$s,%3$s", GROWX, 4, WRAP));
 		//
 		add(panel, new JLabel("Content Type"), "span 2");
 		//
@@ -164,7 +170,7 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 						tmContentInfo = new DefaultTableModel(Arrays.stream(getDeclaredFields(ContentInfo.class))
 								.filter(f -> f != null && !Modifier.isStatic(f.getModifiers()))
 								.map(DeflateUtilsGui::getName).toList().toArray(new String[] {}), 0))),
-				String.format("%1$s,%2$s,span %3$s,hmax %4$s", growx, wrap, 3, 39));
+				String.format("%1$s,%2$s,span %3$s,hmax %4$s", GROWX, WRAP, 3, 39));
 		//
 		add(panel, new JLabel("Digest"));
 		//
@@ -194,17 +200,41 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		add(panel, jcb, String.format("span %1$s", 2));
 		//
-		add(panel, jtcDigest = new JTextField(), String.format("%1$s,%2$s,span %3$s", growx, wrap, 2));
+		add(panel, jtcDigest = new JTextField(), String.format("%1$s,%2$s,span %3$s", GROWX, WRAP, 2));
 		//
 		add(panel, new JLabel("Deflated"));
 		//
-		add(panel, jtcDeflated = new JTextField(), String.format("%1$s,span %2$s", growx, 3));
+		add(panel, jtcDeflatedOutput = new JTextField(), String.format("%1$s,span %2$s", GROWX, 3));
 		//
-		add(panel, jtcDeflatedLength = new JTextField(), String.format("%1$s", growx));
+		add(panel, jtcDeflatedLength = new JTextField(), String.format("%1$s,wmin %2$s", GROWX, wmin));
 		//
-		add(panel, absCopyDeflated = new JButton("Copy"), String.format("%1$s,%2$s", growx, wrap));
+		add(panel, absCopyDeflated = new JButton("Copy"), String.format("%1$s,%2$s", GROWX, WRAP));
 		//
 		addActionListener(this, absFile, absFileRefresh, absCopyDeflated);
+		//
+		return panel;
+		//
+	}
+
+	private JPanel createInflatePanel(final LayoutManager layoutManager) {
+		//
+		final JPanel panel = new JPanel();
+		//
+		panel.setLayout(layoutManager);
+		//
+		add(panel, new JLabel("Deflated"));
+		//
+		add(panel, jtcDeflatedInput = new JTextField(), String.format("width %1$s,span %2$s", 200, 2));
+		//
+		add(panel, absDeflate = new JButton("Deflate"), WRAP);
+		//
+		add(panel, new JLabel("Original"));
+		//
+		add(panel, jtcfOriginal = new JTextField(), String.format("%1$s,wmin %2$s", GROWX, 150));
+		//
+		add(panel, jtcfOriginalLength = new JTextField(), String.format("%1$s,%2$s,wmin %3$s", GROWX, WRAP, 60));
+		//
+		addActionListener(this, absDeflate);
 		//
 		return panel;
 		//
@@ -398,7 +428,24 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 			//
 		} else if (Objects.equals(source, absCopyDeflated)) {
 			//
-			setContents(getSystemClipboard(getToolkit()), new StringSelection(getText(jtcDeflated)), null);
+			setContents(getSystemClipboard(getToolkit()), new StringSelection(getText(jtcDeflatedOutput)), null);
+			//
+		} else if (Objects.equals(source, absDeflate)) {
+			//
+			final Decoder decoder = Base64.getDecoder();
+			//
+			byte[] bs = null;
+			//
+			try {
+				bs = DeflateUtils.inflate(decoder != null ? decoder.decode(getText(jtcDeflatedInput)) : null);
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			//
+			setText(jtcfOriginal, encodeToString(Base64.getEncoder(), bs));
+			//
+			setText(jtcfOriginalLength, bs != null ? Long.toString(bs.length) : null);
 			//
 		} // if
 			//
@@ -438,35 +485,45 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 				//
 			} // for
 				//
-			dtm.addRow(new FailableStream<>(Arrays.stream(getDeclaredFields(ci != null ? ci.getClass() : null))
-					.filter(f -> f != null && !Modifier.isStatic(f.getModifiers()))).map(f -> {
-						//
-						if (f == null) {
-							//
-							return null;
-							//
-						} // if
-							//
-						f.setAccessible(true);
-						//
-						final Object o = f.get(ci);
-						//
-						if (o instanceof Object[] os) {
-							//
-							return StringUtils.joinWith(",", os);
-							//
-						} // if
-							//
-						return o;
-						//
-					}).collect(Collectors.toList()).toArray());
+			final Class<?> clz = ci != null ? ci.getClass() : null;
 			//
+			if (clz != null) {
+				//
+				dtm.addRow(new FailableStream<>(Arrays.stream(getDeclaredFields(clz))
+						.filter(f -> f != null && !Modifier.isStatic(f.getModifiers()))).map(f -> {
+							//
+							if (f == null) {
+								//
+								return null;
+								//
+							} // if
+								//
+							f.setAccessible(true);
+							//
+							final Object o = f.get(ci);
+							//
+							if (o instanceof Object[] os) {
+								//
+								return StringUtils.joinWith(",", os);
+								//
+							} // if
+								//
+							return o;
+							//
+						}).collect(Collectors.toList()).toArray());
+				//
+			} // if
+				//
 		} catch (final IOException e) {
 			//
 			error(LOG, e.getMessage(), e);
 			//
 		} // try
 			//
+		final Encoder encoder = Base64.getEncoder();
+		//
+		setText(jtcFileBase64, encodeToString(encoder, bs));
+		//
 		final Method method = cast(Method.class, getSelectedItem(cbmMethod));
 		//
 		try {
@@ -482,7 +539,7 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 			//
 		final byte[] bsDeflated = DeflateUtils.deflate(bs);
 		//
-		setText(jtcDeflated, encodeToString(Base64.getEncoder(), bsDeflated));
+		setText(jtcDeflatedOutput, encodeToString(encoder, bsDeflated));
 		//
 		setText(jtcDeflatedLength, bsDeflated != null ? Long.toString(bsDeflated.length) : null);
 		//

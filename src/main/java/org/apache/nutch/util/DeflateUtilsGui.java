@@ -4,7 +4,11 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.LayoutManager;
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.ClipboardOwner;
 import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.dnd.DnDConstants;
@@ -82,9 +86,9 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 
 	private static final String COMPONENT = "component";
 
-	private JTextComponent jtcFile, jtcFileLength, jtcContentType, jtcDigest, jtcDeflated, jtcDeflatedLength = null;
+	private JTextComponent jtcFile, jtcFileLength, jtcDigest, jtcDeflated, jtcDeflatedLength = null;
 
-	private AbstractButton absFile, absFileRefresh = null;
+	private AbstractButton absFile, absFileRefresh, absCopyDeflated = null;
 
 	private JPanel jpFile = null;
 
@@ -105,7 +109,7 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		final LayoutManager lm1 = isRootPaneCheckingEnabled() ? getLayout(getContentPane()) : getLayout();
 		//
-		jTabbedPane.addTab("Defalte", createDeflatePanel(cloneLayoutManager(lm1), this));
+		jTabbedPane.addTab("Defalte", createDeflatePanel(cloneLayoutManager(lm1)));
 		//
 		if (lm1 instanceof MigLayout) {
 			//
@@ -119,8 +123,7 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		return instance != null ? instance.getLayout() : null;
 	}
 
-	private JPanel createDeflatePanel(final LayoutManager layoutManager, final DropTargetListener instance)
-			throws TooManyListenersException {
+	private JPanel createDeflatePanel(final LayoutManager layoutManager) throws TooManyListenersException {
 		//
 		final JPanel panel = new JPanel();
 		//
@@ -138,7 +141,7 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		jpFile.setDropTarget(dtFile = new DropTarget(this, DnDConstants.ACTION_COPY_OR_MOVE, null));
 		//
-		dtFile.addDropTargetListener(instance);
+		dtFile.addDropTargetListener(this);
 		//
 		final String growx = "growx";
 		//
@@ -148,8 +151,6 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		add(panel, absFileRefresh = new JButton("Refresh"), String.format("%1$s,%2$s", top, wrap));
 		//
-		addActionListener(this, absFile, absFileRefresh);
-		//
 		add(panel, new JLabel("File"));
 		//
 		add(panel, jtcFile = new JTextField(), String.format("width %1$s,%2$s,span %3$s", 200, growx, 3));
@@ -157,16 +158,6 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		add(panel, jtcFileLength = new JTextField(), String.format("%1$s,%2$s,wmin %3$s", growx, wrap, 60));
 		//
 		add(panel, new JLabel("Content Type"), "span 2");
-		//
-		// TODO
-		//
-		// add(panel, jtcContentType = new JTextField(), String.format("%1$s,%2$s,span
-		// %3$s", growx, wrap, 3));
-		//
-		// {"contentType":"ZIP","name":"zip","message":"Zip archive data, at least v2.0
-		// to
-		// extract","mimeType":"application/zip","fileExtensions":["zip"],"partial":true}
-		//
 		//
 		add(panel,
 				new JScrollPane(new JTable(
@@ -177,15 +168,13 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		add(panel, new JLabel("Digest"));
 		//
-		final JComboBox<?> jcb = new JComboBox<>(
-				cbmMethod = new DefaultComboBoxModel<>(
-						ArrayUtils.add(
-								Arrays.stream(DigestUtils.class.getDeclaredMethods())
-										.filter(m -> m != null && Modifier.isStatic(m.getModifiers())
-												&& Arrays.equals(m.getParameterTypes(), new Class<?>[] { byte[].class })
-												&& Objects.equals(String.class, m.getReturnType()))
-										.sorted((a, b) -> StringUtils.compare(getName(a), getName(b))).toArray(),
-								0, null)));
+		final JComboBox<?> jcb = new JComboBox<>(cbmMethod = new DefaultComboBoxModel<>(ArrayUtils.insert(0,
+				Arrays.stream(DigestUtils.class.getDeclaredMethods())
+						.filter(m -> m != null && Modifier.isStatic(m.getModifiers())
+								&& Arrays.equals(m.getParameterTypes(), new Class<?>[] { byte[].class })
+								&& Objects.equals(String.class, m.getReturnType()))
+						.sorted((a, b) -> StringUtils.compare(getName(a), getName(b))).toArray(),
+				(Object) null)));
 		//
 		final ListCellRenderer<?> render = jcb.getRenderer();
 		//
@@ -211,7 +200,11 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 		//
 		add(panel, jtcDeflated = new JTextField(), String.format("%1$s,span %2$s", growx, 3));
 		//
-		add(panel, jtcDeflatedLength = new JTextField(), String.format("%1$s,%2$s", growx, wrap));
+		add(panel, jtcDeflatedLength = new JTextField(), String.format("%1$s", growx));
+		//
+		add(panel, absCopyDeflated = new JButton("Copy"), String.format("%1$s,%2$s", growx, wrap));
+		//
+		addActionListener(this, absFile, absFileRefresh, absCopyDeflated);
 		//
 		return panel;
 		//
@@ -403,8 +396,26 @@ public class DeflateUtilsGui extends JFrame implements ActionListener, DropTarge
 			//
 			set(file);
 			//
+		} else if (Objects.equals(source, absCopyDeflated)) {
+			//
+			setContents(getSystemClipboard(getToolkit()), new StringSelection(getText(jtcDeflated)), null);
+			//
 		} // if
 			//
+	}
+
+	private static String getText(final JTextComponent instance) {
+		return instance != null ? instance.getText() : null;
+	}
+
+	private static void setContents(final Clipboard instance, final Transferable contents, final ClipboardOwner owner) {
+		if (instance != null) {
+			instance.setContents(contents, owner);
+		}
+	}
+
+	private static Clipboard getSystemClipboard(final Toolkit instance) {
+		return instance != null ? instance.getSystemClipboard() : null;
 	}
 
 	private void set(final File file) {
